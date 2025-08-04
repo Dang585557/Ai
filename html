@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Comment Reply Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input[type="text"], textarea { width: 100%; padding: 8px; }
+        button { padding: 10px 15px; background: #4267B2; color: white; border: none; cursor: pointer; }
+        button:hover { background: #365899; }
+        .comments-list { margin-top: 20px; }
+        .comment { border: 1px solid #ddd; padding: 10px; margin-bottom: 10px; cursor: pointer; }
+        .comment:hover { background-color: #f0f0f0; }
+        .reply-box { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Facebook Comment Reply Generator</h1>
+        <div class="form-group">
+            <label for="post_id">Facebook Post ID หรือ URL:</label>
+            <input type="text" id="post_id" placeholder="เช่น: 1234567890_1234567890 หรือ https://www.facebook.com/username/posts/1234567890">
+        </div>
+        <div class="form-group">
+            <label for="access_token">Facebook Access Token:</label>
+            <input type="text" id="access_token" placeholder="ใส่ access token ของคุณ">
+        </div>
+        <div class="form-group">
+            <label for="openai_key">OpenAI API Key:</label>
+            <input type="text" id="openai_key" placeholder="ใส่ OpenAI API key ของคุณ">
+        </div>
+        <button id="load-comments">โหลดคอมเมนต์</button>
+
+        <div class="comments-list" id="comments-container">
+            <!-- คอมเมนต์จะแสดงที่นี่ -->
+        </div>
+
+        <div class="reply-box" id="reply-box" style="display: none;">
+            <h3>ตอบกลับ</h3>
+            <div class="form-group">
+                <label>ความคิดเห็นที่เลือก:</label>
+                <div id="selected-comment"></div>
+            </div>
+            <div class="form-group">
+                <label>ข้อความตอบกลับที่สร้างโดย AI:</label>
+                <textarea id="ai-reply" rows="4" readonly></textarea>
+            </div>
+            <button id="copy-reply">คัดลอกคำตอบ</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('load-comments').addEventListener('click', loadComments);
+        document.getElementById('copy-reply').addEventListener('click', copyReply);
+
+        function loadComments() {
+            const postIdInput = document.getElementById('post_id').value;
+            const accessToken = document.getElementById('access_token').value;
+            const openaiKey = document.getElementById('openai_key').value;
+
+            // แยก Post ID จาก URL ถ้าเป็น URL
+            let postId = postIdInput;
+            if (postIdInput.includes('facebook.com')) {
+                // พยายามดึง post_id จาก URL
+                const match = postIdInput.match(/[0-9]+(?:_[0-9]+)?/);
+                if (match) {
+                    postId = match[0];
+                } else {
+                    alert('ไม่พบ Post ID ใน URL');
+                    return;
+                }
+            }
+
+            fetch('/get_comments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    post_id: postId,
+                    access_token: accessToken
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('เกิดข้อผิดพลาด: ' + data.error);
+                    return;
+                }
+                displayComments(data, openaiKey);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('เกิดข้อผิดพลาดในการโหลดคอมเมนต์');
+            });
+        }
+
+        function displayComments(comments, openaiKey) {
+            const container = document.getElementById('comments-container');
+            container.innerHTML = '';
+            comments.forEach(comment => {
+                const commentDiv = document.createElement('div');
+                commentDiv.className = 'comment';
+                commentDiv.innerHTML = `<strong>${comment.from_name}:</strong> ${comment.message}`;
+                commentDiv.dataset.commentId = comment.id;
+                commentDiv.dataset.commentText = comment.message;
+                commentDiv.addEventListener('click', function() {
+                    // เมื่อคลิกที่คอมเมนต์ ให้เรียกฟังก์ชันสร้างคำตอบ
+                    generateReply(comment.message, openaiKey);
+                });
+                container.appendChild(commentDiv);
+            });
+        }
+
+        function generateReply(commentText, openaiKey) {
+            fetch('/generate_reply', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    comment_text: commentText,
+                    openai_api_key: openaiKey
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('เกิดข้อผิดพลาด: ' + data.error);
+                    return;
+                }
+                document.getElementById('selected-comment').innerText = commentText;
+                document.getElementById('ai-reply').value = data.reply;
+                document.getElementById('reply-box').style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('เกิดข้อผิดพลาดในการสร้างคำตอบ');
+            });
+        }
+
+        function copyReply() {
+            const replyText = document.getElementById('ai-reply');
+            replyText.select();
+            document.execCommand('copy');
+            alert('คัดลอกคำตอบแล้ว!');
+        }
+    </script>
+</body>
+</html>
