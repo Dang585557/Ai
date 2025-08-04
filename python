@@ -1,0 +1,77 @@
+import os
+import requests
+from flask import Flask, render_template, request, jsonify
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+
+# เราไม่ใช้คีย์จาก .env แล้วเพราะจะให้ผู้ใช้ป้อนเอง
+# แต่เราอาจใช้คีย์ของเราเองถ้าต้องการให้บริการโดยใช้คีย์ของเรา
+# ในที่นี้เราจะให้ผู้ใช้ป้อนทั้ง Facebook access token และ OpenAI API key
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/get_comments', methods=['POST'])
+def get_comments():
+    # รับ post_id และ access token จากผู้ใช้
+    data = request.json
+    post_id = data.get('post_id')
+    access_token = data.get('access_token')
+
+    if not post_id or not access_token:
+        return jsonify({'error': 'Missing post_id or access_token'}), 400
+
+    # ดึงคอมเมนต์จาก Facebook Graph API
+    url = f"https://graph.facebook.com/v19.0/{post_id}/comments?access_token={access_token}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        comments_data = response.json()
+        comments = []
+        for comment in comments_data.get('data', []):
+            comments.append({
+                'id': comment['id'],
+                'message': comment.get('message', ''),
+                'from_name': comment['from']['name']
+            })
+        return jsonify(comments)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/generate_reply', methods=['POST'])
+def generate_reply():
+    data = request.json
+    comment_text = data.get('comment_text')
+    openai_api_key = data.get('openai_api_key')
+
+    if not comment_text or not openai_api_key:
+        return jsonify({'error': 'Missing comment_text or openai_api_key'}), 400
+
+    # เรียกใช้ OpenAI API (ใช้โมเดล GPT-3.5 หรือ GPT-4)
+    headers = {
+        'Authorization': f'Bearer {openai_api_key}',
+        'Content-Type': 'application/json'
+    }
+    payload = {
+        "model": "gpt-3.5-turbo",
+        "messages": [
+            {"role": "system", "content": "คุณเป็นผู้ช่วยที่ช่วยตอบความคิดเห็นบน Facebook โดยคำตอบต้องสุภาพ เหมาะสม และเป็นมิตร"},
+            {"role": "user", "content": f"จงเขียนข้อความตอบกลับสำหรับความคิดเห็นต่อไปนี้โดยไม่ต้องกล่าวถึงว่าเป็น AI:\n\nความคิดเห็น: {comment_text}"}
+        ]
+    }
+
+    try:
+        response = requests.post('https://api.openai.com/v1/chat/completions', json=payload, headers=headers)
+        response.raise_for_status()
+        result = response.json()
+        reply = result['choices'][0]['message']['content']
+        return jsonify({'reply': reply})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
